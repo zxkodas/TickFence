@@ -2,7 +2,7 @@
 
 # 🛡️ TickFence
 
-**A focus blocker for Windows that keeps its promises.**
+**A focus blocker for Windows and Linux that keeps its promises.**
 
 You decide which programs and which websites go dark.
 You decide how many tasks in TickTick bring them back.
@@ -12,15 +12,15 @@ You decide how hard the emergency exit is to push.
 
 <div align="center">
 
-![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D6?logo=windows&logoColor=white)
+![platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20%C2%B7%20Linux-0078D6?logo=windows&logoColor=white)
 ![python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![gui](https://img.shields.io/badge/GUI-PySide6-2D8BC0)
 ![tests](https://img.shields.io/badge/tests-278%20passing-16A34A)
 ![ci](https://github.com/zxkodas/TickFence/actions/workflows/tests.yml/badge.svg)
 ![chrome](https://img.shields.io/badge/Chrome%20%2F%20Edge%20%2F%20Brave-MV3-4285F4?logo=googlechrome&logoColor=white)
 ![firefox](https://img.shields.io/badge/Firefox-MV3-FF7139F?logo=firefoxbrowser&logoColor=white)
-![service](https://img.shields.io/badge/enforcement-Windows%20Service%20%2B%20IFEO-6E7681)
-![installer](https://img.shields.io/badge/installer-.exe-3D8B8B)
+![service](https://img.shields.io/badge/enforcement-Service%20%2B%20guard-6E7681)
+![installer](https://img.shields.io/badge/installer-.exe%20%2F%20pip-3D8B8B)
 ![license](https://img.shields.io/badge/license-GPL--3.0-blue)
 
 </div>
@@ -60,8 +60,9 @@ for it, and it turns itself off as soon as the tasks are done:
 - 🚪 **The emergency exit exists**, and it is expensive on purpose: you write
   down *why*, and it is saved with a timestamp so you can read your own words
   back next time you are tempted.
-- 🧠 **It works by making the block hard to undo**, not by nagging you. Windows
-  itself refuses to launch the program.
+- 🧠 **It works by making the block hard to undo**, not by nagging you. On
+  Windows, Windows itself refuses to launch the program; on Linux, the process
+  guard kills it within a second.
 
 ---
 
@@ -79,7 +80,7 @@ every one of them in *Ajustes*.
 | Escape hatch duration | **20 min** | 1–480 | How long the emergency unlock lasts |
 | Blocked programs | *(empty)* | — | What stops launching |
 | Blocked sites | YouTube, Reddit, Instagram, X, Twitter, Twitch, Netflix, TikTok | — | What stops loading |
-| Enable IFEO (hard block) | **on** | — | Turn it off and only the soft guard works |
+| Enable IFEO (hard block, Windows only) | **on** | — | Turn it off and only the soft guard works |
 
 **A gentle setup:** 1 task, 100 words, 1 minute.
 **A brutal one:** 8 tasks, 1500 words, 30 minutes.
@@ -96,30 +97,32 @@ Both are the same program. Pick the one you will actually keep.
 
 ### Step 0 — What you need
 
-- Windows 10 or 11
+- Windows 10 or 11, or Linux with systemd
 - Python 3.11 or newer
 - A free [TickTick](https://ticktick.com) account
 - **One kanban project** for your tasks (board view, not a folder)
 
 ### Step 1 — Install the service
 
-**The easy way:** download `TickFence-Setup-1.1.1.exe` from the
-[releases page](https://github.com/zxkodas/TickFence/releases), run it, and
+**The easy way (Windows):** download the latest `TickFence-Setup-*.exe` from
+the [releases page](https://github.com/zxkodas/TickFence/releases), run it, and
 accept the Windows prompt. It asks for Administrator once, then does
 everything below for you. It is **not code-signed**, so SmartScreen will warn
-you; that warning is expected.
+you; that warning is expected. (Not every release ships an `.exe`; when there
+is none, install from source.)
 
-**Or from source**, in **PowerShell as Administrator**, in this folder:
+**Or from source (Windows)**, in **PowerShell as Administrator**, in this folder:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-Either way this installs dependencies, registers the Windows service, starts
-it, and checks that it answers. You only do it once, and admin rights are only
-needed that one time.
+Either way, on Windows, this installs dependencies, registers the Windows
+service, starts it, and checks that it answers. You only do it once, and admin
+rights are only needed that one time.
 
-**On Linux**, there is no `.exe` and no admin needed. From this folder:
+**On Linux**, there is no `.exe` and no admin needed. From this folder
+(consider a venv — most distros refuse system-wide `pip install`):
 
 ```bash
 pip install .
@@ -145,14 +148,16 @@ That is your token: a string starting with `tp_`.
 
 > 🔐 **If you ever paste that token into a chat, a screenshot, or anywhere
 > public — revoke it and make a new one.** A leaked token lets someone read and
-> edit your tasks. TickFence stores it encrypted with DPAPI, but it cannot help
-> you once the token has left your machine.
+> edit your tasks. On Windows TickFence stores it encrypted with DPAPI (on
+> Linux, base64 with `0600` file permissions), but it cannot help you once the
+> token has left your machine.
 
 ### Step 3 — Open the app
 
-No admin rights needed from here on:
+No admin rights needed from here on (on Windows, no admin ever needed past
+Step 1):
 
-```powershell
+```bash
 python -m focuslock gui
 ```
 
@@ -203,8 +208,9 @@ it *while* a lock is active, which is a legitimate use.
 Both tabs have a **Permitidos** list on the right that is never blocked. Put
 your editor, your notes, your reference docs in there.
 
-> 💡 Block by the exact executable name (`steam.exe`), not the shortcut.
-> Click *Agregar* and pick from the list if you are unsure.
+> 💡 Block by the exact executable name (`steam.exe` on Windows, `steam` on
+> Linux), not the shortcut. Click *Agregar* and pick from the list if you are
+> unsure.
 
 ### Step 9 — Add the browser extension
 
@@ -241,7 +247,7 @@ the browser**, so it is only for testing.
 
 After changing the extension, rebuild the package with:
 
-```powershell
+```bash
 python -m focuslock.build_xpi
 ```
 
@@ -253,7 +259,8 @@ out — finish the tasks, or use the emergency unlock.
 
 Press **Activar bloqueo** in the *Estado* tab. From that moment:
 
-- Blocked programs will not launch
+- Blocked programs will not launch (Windows: they never start; Linux: they
+  are killed within a second, with a desktop notice)
 - Blocked domains will not load
 - Open tabs to those domains get closed
 - The emergency button becomes available
@@ -301,33 +308,36 @@ there when it does.
 
 ```
 ┌─ Your normal session (no admin rights) ────────────┐
-│    TickFence GUI  ──────named pipe──────┐          │
-│    Browser extension ─────local HTTP────┤          │
-└──────────────────────────────────────────┼──────────┘
-                                           ▼
-┌─ Windows service (LocalSystem, auto-start) ───────┐
+│    TickFence GUI  ───pipe/socket───┐                │
+│    Browser extension ─local HTTP──┤                │
+└────────────────────────────────────┼────────────────┘
+                                     ▼
+┌─ Enforcement service (auto-start) ─────────────────┐
+│    Windows: LocalSystem service + named pipe       │
+│    Linux: systemd user service + Unix socket       │
 │    · polls TickTick, awards credits                │
-│    · writes / removes IFEO keys in HKLM            │
+│    · applies the hard block (IFEO keys / guard)    │
 │    · process guard, every 0.8 s                    │
 │    · local HTTP server for the extension           │
 └───────────────────────────────────────────────────┘
 ```
 
-The service owns the block. The GUI just asks it for things over a named pipe,
-which is why **the GUI never needs admin rights**.
+The service owns the block. The GUI just asks it for things over a pipe (or
+socket), which is why **the GUI never needs admin rights**.
 
 ## 🧱 The three layers
 
 | Layer | What it does | How it can be beaten |
 |---|---|---|
-| **IFEO** | Windows never starts the program — replaced by a notice | You would need admin to delete the `HKLM` keys |
-| **Process guard** | Detects a process in 0.8 s and kills it if it slipped through | Killing it by hand from Task Manager |
+| **IFEO** (Windows) | Windows never starts the program — replaced by a notice | You would need admin to delete the `HKLM` keys |
+| **Process guard** (both; the hard layer on Linux) | Detects a process in 0.8 s and kills it if it slipped through — or, on Linux, as the block itself | Killing it by hand from Task Manager / `systemctl --user stop tickfence` |
 | **Extension** | Blocks domains, closes tabs already open | Turning the extension off (yes, you can) |
 
 The extension is the weakest layer, on purpose — there is no way to block an
-extension from another process without the user noticing. **IFEO is what holds.**
+extension from another process without the user noticing. **On Windows, IFEO is
+what holds; on Linux, the guard is.**
 
-### Why IFEO matters
+### Why IFEO matters (Windows)
 
 `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution
 Options\<program>.exe` with a `Debugger` value makes Windows **not run** the
@@ -343,12 +353,13 @@ enough.**
 > `rules.NEVER_BLOCK` is enforced **inside `match_program()` itself**. It is not
 > part of your editable allowlist, so no setting can disable it.
 >
-> It covers the desktop shell (`explorer.exe`, `userinit.exe`, `sihost.exe`, …),
-> the session core (`lsass.exe`, `csrss.exe`, `winlogon.exe`, `svchost.exe`, …),
-> antivirus, TickFence itself, and the entire toolkit you would use to undo the
-> block: `cmd.exe`, `powershell.exe`, `taskmgr.exe`, `regedit.exe`,
-> `taskkill.exe`, `shutdown.exe`, `msconfig.exe`, `rundll32.exe`, `mshta.exe`,
-> `wscript.exe`, `cscript.exe`.
+> It covers the desktop shell (`explorer.exe`, `userinit.exe`, `sihost.exe`, …
+> on Windows; `gnome-shell`, `systemd`, `Xorg`, … on Linux), the session core
+> (`lsass.exe`, `csrss.exe`, `winlogon.exe`, `svchost.exe`, …), antivirus,
+> TickFence itself, and the entire toolkit you would use to undo the block:
+> `cmd.exe`, `powershell.exe`, `taskmgr.exe`, `regedit.exe`, `taskkill.exe`,
+> `shutdown.exe`, `msconfig.exe`, `rundll32.exe`, `mshta.exe`, `wscript.exe`,
+> `cscript.exe` (and `shutdown`, `systemctl`, `kill`, `sudo`, … on Linux).
 >
 > `explorer.exe` is **not** in the allowlist on purpose. The allowlist is
 > editable; `NEVER_BLOCK` is not. If it were only in the allowlist, one day you
@@ -363,39 +374,39 @@ This design came from a real bug: an earlier process guard killed
 
 | Command | What it does |
 |---|---|
-| `python -m focuslock install [--token tp_…]` | Install and start the service (**admin**) |
-| `python -m focuslock uninstall` | Remove service, IFEO keys, shortcuts (**admin**) |
+| `python -m focuslock install [--token tp_…]` | Install and start the service (admin on Windows; no sudo on Linux) |
+| `python -m focuslock uninstall` | Remove service, enforcement keys, shortcuts (admin on Windows; no sudo on Linux) |
 | `python -m focuslock gui` | Open the window (no admin) |
 | `python -m focuslock status` | One-line status |
 | `python -m focuslock doctor` | **Full diagnostics — run this first** |
 | `python -m focuslock reset` | Factory reset: unlocked, counters at zero |
-| `python -m focuslock ifeo-reconcile` | Clean orphaned IFEO keys (service can be stopped) |
+| `python -m focuslock ifeo-reconcile` | Clean orphaned IFEO keys, Windows (no-op elsewhere; service can be stopped) |
 | `python -m focuslock console` | Run the engine in the foreground, **guard off** |
 
 Run `doctor` first when something misbehaves: it reports the service state, the
-IFEO keys, the pipe, the HTTP server, and whether the installed copy in
-site-packages matches your working folder.
+enforcement keys (IFEO on Windows), the IPC channel, the HTTP server, and
+whether the installed copy in site-packages matches your working folder.
 
 **Why `console` will not arm the guard.** It runs the engine **in your desktop
 session**, not as a service. If the process guard ran there it would kill
 programs in the session you are using — including your desktop. So it is off
 unless you ask:
 
-```powershell
+```bash
 python -m focuslock console --armar-guard
 ```
 
 ## 📍 Where things live
 
-| What | Where |
-|---|---|
-| Configuration | `C:\ProgramData\TickFence\config.json` |
-| State, credits, logs | `C:\ProgramData\TickFence\state.json` |
-| TickTick token | inside `state.json`, **DPAPI-encrypted** |
-| Service | `TickFenceSvc` — "TickFence Enforcement Service" |
-| GUI ↔ service | `\\.\pipe\TickFence` |
-| Extension endpoint | `http://127.0.0.1:47821/state?token=…` |
-| Extensions | `extension/chrome/`, `extension/firefox/` |
+| What | Windows | Linux |
+|---|---|---|
+| Configuration | `C:\ProgramData\TickFence\config.json` | `~/.local/share/TickFence/config.json` |
+| State, credits, logs | `C:\ProgramData\TickFence\state.json` | `~/.local/share/TickFence/state.json` |
+| TickTick token | inside `state.json`, **DPAPI-encrypted** | inside `state.json`, base64, file at `0600` |
+| Service | `TickFenceSvc` — "TickFence Enforcement Service" | `tickfence.service` (systemd `--user`) |
+| GUI ↔ service | `\\.\pipe\TickFence` | Unix socket at `$XDG_RUNTIME_DIR/tickfence` |
+| Extension endpoint | `http://127.0.0.1:47821/state?token=…` | same |
+| Extensions | `extension/chrome/`, `extension/firefox/` | same |
 
 You can also edit `config.json` by hand while the service is stopped.
 
@@ -406,17 +417,17 @@ focuslock/
   daemon.py     the engine: coordinates everything (runs as the service)
   gate.py       the gate: what counts as work and when it unlocks
   rules.py      normalisation and matching (tasks, sites, programs)
-  ifeo.py       registry key writing and cleanup
+  ifeo.py       IFEO registry keys on Windows (no-op elsewhere)
   guard.py      the process guard
   server.py     local HTTP server for the extensions
-  ipc.py        named pipe between GUI and service
+  ipc.py        GUI ↔ service channel (named pipe / Unix socket)
   emergency.py  validation of the written pledge
   ticktick.py   API client (no third-party dependencies)
   store.py      persistent state
   config.py     configuration
-  secrets.py    DPAPI encryption
-  service.py    Windows service wrapper
-  stub.py       the notice IFEO shows instead of your program
+  secrets.py    secret storage (DPAPI on Windows, 0600 file on Linux)
+  service.py    service wrapper (Windows service / systemd user unit)
+  stub.py       the block notice shown instead of your program
   paths.py      paths and platform checks
   local.py      non-service mode, for development
   diag.py       diagnostics
@@ -432,43 +443,53 @@ store, so the whole decision logic is testable without a network.
 
 ## 🧪 Tests
 
-```powershell
-.\run_tests.ps1          # all 8 suites, each in its own process
-.\run_tests.ps1 -Quick   # skips test_guard, the slow one
+```bash
+./run_tests.sh          # all suites, each in its own process
+./run_tests.sh --quick  # skips test_guard, the slow one
 ```
+
+(On Windows: `.\run_tests.ps1`, same options.)
 
 **196 tests**, each suite in a separate process on purpose: `test_ui` creates a
 `QApplication` and Qt allows only one per process.
 
 | Suite | Covers |
 |---|---|
-| `test_focuslock` | Rules, the gate, the emergency flow, DPAPI, the HTTP server |
-| `test_win32` | Scans the Win32 layer and the pywin32 module layout |
+| `test_focuslock` | Rules, the gate, the emergency flow, secret storage, the HTTP server |
+| `test_win32` | Scans the Win32 layer and the pywin32 module layout (skipped on Linux) |
 | `test_imports` | Valid imports, and that the UI only calls commands that exist |
-| `test_ifeo` | Registry key construction and cleanup |
+| `test_ifeo` | IFEO value construction and cleanup (no-op on Linux) |
 | `test_stub` | The block notice the stub shows |
 | `test_ui` | **Builds the real window and tray**, headless |
 | `test_extension` | Both extension manifests and the popup |
-| `test_guard` | **Kills real processes**, verifies the `explorer.exe` protection |
+| `test_guard` | **Kills real processes**, verifies the never-block protection |
 
 ---
 
 ## ⚠️ Known limits
 
-- **The browser extension can be turned off.** IFEO cannot, but open tabs stay
-  a back door while the browser runs.
+- **The browser extension can be turned off.** On Windows IFEO cannot, but
+  open tabs stay a back door while the browser runs.
 - **The guard matches by process name.** Two versions of one app under
   different names need blocking both. And if one of them happens to be called
-  `explorer.exe` or `OpenCode.exe`, TickFence will never touch it.
+  `explorer.exe` or `OpenCode.exe` (or `gnome-shell` on Linux), TickFence will
+  never touch it.
 - **`console` is a development mode**, not a daily-use mode. Install the
   service for real use.
-- **IFEO needs admin rights.** Without elevation the hard block is off and only
-  the process guard works. `install.ps1` warns you.
+- **IFEO needs admin rights (Windows).** Without elevation the hard block is
+  off and only the process guard works. `install.ps1` warns you. On Linux
+  there is no IFEO at all: the guard is the whole hard block, and stopping
+  your own user service (`systemctl --user stop tickfence`) stops it — that
+  is the honest trade-off for needing no root.
+- **The token is DPAPI-encrypted on Windows; plain base64 (`0600`) on
+  Linux.** Same warning as above applies: whoever reads the file gets the
+  token.
 - **The TickTick API is used as-is.** If TickTick changes its endpoints,
   `ticktick.py` needs updating. The project is matched by name precisely so a
   change of ID breaks nothing.
-- **The service must be running.** Registry keys survive reboots, but with the
-  service stopped there is no guard and no polling.
+- **The service must be running.** On Windows the IFEO keys survive reboots,
+  but with the service stopped there is no guard and no polling. On Linux
+  nothing persists without the service at all.
 - **Deleting a TickTick task by hand counts as completing it.** Recurring tasks
   leave no other trace — see below.
 
