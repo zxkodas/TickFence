@@ -49,6 +49,16 @@ from ..i18n import tr
 from ..ipc import IpcClient
 from .emergency import EmergencyDialog
 
+# Comando de instalación según SO. En Windows es install.ps1 con admin;
+# en Linux es el propio CLI (systemd --user, sin sudo).
+_ON_WIN = sys.platform.startswith("win")
+_INSTALL_CMD = "install.ps1" if _ON_WIN else "python -m focuslock install"
+_INSTALL_SHELL = (
+    "powershell -ExecutionPolicy Bypass -File install.ps1"
+    if _ON_WIN
+    else "python -m focuslock install"
+)
+
 # Gris oscuro NEUTRO, sin tinte azul. Jerarquia de TickTick, contencion de
 # Apple: un solo acento, y en tres lugares.
 #
@@ -289,7 +299,7 @@ class MainWindow(QMainWindow):
         self.nav.currentRowChanged.connect(self._ir_a)
         side.addWidget(self.nav, 1)
 
-        foot = QLabel(tr("Service: LocalSystem"))
+        foot = QLabel(tr("Service: LocalSystem") if _ON_WIN else tr("Service: systemd user"))
         foot.setObjectName("sidebarFoot")
         foot.setContentsMargins(28, 0, 0, 0)
         side.addWidget(foot)
@@ -1134,7 +1144,11 @@ class MainWindow(QMainWindow):
             self._aviso(
                 "<b style='color:#e5484d'>SIN SERVICIO</b> — no se puede "
                 f"consultar el estado.<br>{offline}<br>"
-                "Instalalo con administrador: <code>install.ps1</code>"
+                + (
+                    "Instalalo con administrador: <code>install.ps1</code>"
+                    if _ON_WIN
+                    else "Instalalo sin sudo: <code>python -m focuslock install</code>"
+                )
             )
             return
         self._aviso("")
@@ -1166,10 +1180,11 @@ class MainWindow(QMainWindow):
                 self,
                 tr("Not enforcing"),
                 tr(
-                    "The Windows service is not running, so turning the lock on "
+                    "The TickFence service is not running, so turning the lock on "
                     "only resets the Reading counter. To really block, install "
-                    "the service with install.ps1."
-                ),
+                    "the service:"
+                )
+                + f"\n    {_INSTALL_SHELL}",
             )
 
         blocked = self._data.get("ifeo") or []
@@ -1358,7 +1373,7 @@ class MainWindow(QMainWindow):
                     "Heads up: the service is not running, so the token was "
                     "saved but nothing is being blocked yet.\n"
                 )
-                + tr("Install it as administrator:") + " install.ps1"
+                + (tr("Install it as administrator:") if _ON_WIN else tr("Install it (no admin needed):")) + f" {_INSTALL_CMD}"
             )
         QMessageBox.information(
             self,
@@ -1381,7 +1396,7 @@ class MainWindow(QMainWindow):
             word in lowered
             for word in (
                 "servicio", "service",
-                "pipe",
+                "pipe", "socket", "systemctl",
                 "contactar", "contact",
                 "conectar", "connect",
             )
@@ -1391,11 +1406,11 @@ class MainWindow(QMainWindow):
                 self,
                 tr("No service running"),
                 tr(
-                    "The token could not be saved because the Windows service "
+                    "The token could not be saved because the TickFence service "
                     "is not running.\n\n"
                 )
-                + tr("Install it as administrator:")
-                + "\n    powershell -ExecutionPolicy Bypass -File install.ps1\n\n"
+                + (tr("Install it as administrator:") if _ON_WIN else tr("Install it (no admin needed):"))
+                + f"\n    {_INSTALL_SHELL}\n\n"
                 + tr("Technical detail:") + f" {detail}",
             )
             return
@@ -1569,12 +1584,12 @@ class TrayApp:
             self.window,
             tr("TickFence in no-lock mode"),
             tr(
-                "The Windows service is not running, so TickFence will show "
+                "The TickFence service is not running, so TickFence will show "
                 "your Reading status and save your settings, but it will NOT "
                 "block any program.\n\n"
             )
-            + tr("To make it really block, install it once as administrator:\n\n")
-            + "    powershell -ExecutionPolicy Bypass -File install.ps1\n\n"
+            + (tr("To make it really block, install it once as administrator:\n\n") if _ON_WIN else tr("To make it really block, install it once (no admin needed):\n\n"))
+            + f"    {_INSTALL_SHELL}\n\n"
             + tr("Meanwhile you can paste the token in Settings and watch it work."),
         )
 

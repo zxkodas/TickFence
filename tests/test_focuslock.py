@@ -728,7 +728,10 @@ class TestIpcClientErrors(unittest.TestCase):
             self.assertIn(code, _RETRYABLE)
 
     def test_pywintypes_error_is_not_oserror(self):
-        # pywintypes.error no hereda de OSError: hay que capturarlo por separado.
+        # Solo Windows: pywintypes.error no hereda de OSError y hay que
+        # capturarlo por separado. En Linux no hay pywintypes.
+        if not sys.platform.startswith("win"):
+            self.skipTest("solo Windows")
         import pywintypes
 
         self.assertFalse(issubclass(pywintypes.error, OSError))

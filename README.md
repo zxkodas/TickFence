@@ -119,6 +119,20 @@ Either way this installs dependencies, registers the Windows service, starts
 it, and checks that it answers. You only do it once, and admin rights are only
 needed that one time.
 
+**On Linux**, there is no `.exe` and no admin needed. From this folder:
+
+```bash
+pip install .
+python -m focuslock install
+```
+
+This installs the package, registers a **systemd user service**
+(`tickfence.service`, no root), starts it, and checks that it answers. Two
+honest differences from Windows: there is no IFEO on Linux, so programs are
+stopped by the process guard instead of never starting; and the token is stored
+base64 with `0600` permissions instead of DPAPI. Everything else — the poll
+loop, the guard, the extension endpoint, the emergency flow — is the same.
+
 ### Step 2 — Get a TickTick token
 
 1. Log in at [ticktick.com](https://ticktick.com)

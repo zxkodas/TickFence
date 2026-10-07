@@ -122,33 +122,50 @@ NEVER_BLOCK = {
     "focuslock.exe",
     "focuslock_svc.exe",
     "opencode.exe",
-
-    # --- El interprete ---
-    #
-    # TickFence ES un programa de Python: el servicio corre con
-    # pythonservice.exe, la ventana y el aviso de bloqueo con pythonw.exe, y el
-    # modo console con python.exe. Bloquear cualquiera de los tres es
-    # encerrarse.
-    #
-    # El caso de pythonw.exe es el que duele: no le pega al servicio (que se
-    # llama pythonservice.exe y ademas protege su propio PID), asi que el
-    # bloqueo sigue activo y el servicio sigue andando, pero la ventana
-    # MUERE. Quedas con el bloqueo puesto y sin ventana para desbloquear:
-    # tenes que pelearte con la CLI o desinstalar a mano.
-    #
-    # No es hipotetico. Durante la traduccion se comprobo que is_dangerous()
-    # no reconociera ninguno de los tres, y su chequeo de "empieza por
-    # focuslock o tickfence" mira un nombre que este proyecto ya no tiene:
-    # los procesos reales se llaman python*.
+    # --- intérpretes (el servicio/GUI son Python en ambas plataformas) ---
     "python.exe",
     "pythonw.exe",
     "pythonservice.exe",
+    "python",
+    "python3",
+    "python3.11",
+    "python3.12",
+    "python3.13",
+    # --- núcleo Linux: matarlos cuelga la sesión (equivalente a explorer.exe) ---
+    "systemd",
+    "dbus-daemon",
+    "dbus-broker",
+    "gnome-shell",
+    "gnome-session",
+    "gdm",
+    "sddm",
+    "lightdm",
+    "Xorg",
+    "Xwayland",
+    "kwin_wayland",
+    "kwin_x11",
+    "mutter",
+    "sway",
+    "hyprland",
+    "plasmashell",
+    "xfwm4",
+    "openbox",
+    "i3",
+    "picom",
+    "pipewire",
+    "wireplumber",
+    "pulseaudio",
+    "networkmanager",
+    "sshd",
 }
 
 DEFAULT_DANGEROUS = {
     "taskmgr.exe", "regedit.exe", "cmd.exe", "powershell.exe",
     "mmc.exe", "control.exe", "msconfig.exe", "taskkill.exe", "shutdown.exe",
     "rundll32.exe", "mshta.exe", "wscript.exe", "cscript.exe",
+    # Linux: herramientas para deshacer el bloqueo o apagar la máquina.
+    "shutdown", "reboot", "poweroff", "halt",
+    "systemctl", "kill", "killall", "pkill", "sudo", "su",
 }
 
 
@@ -157,7 +174,7 @@ def norm_program(entry: str) -> str:
     entry = (entry or "").strip().strip('"')
     if not entry:
         return ""
-    entry = entry.replace("/", "\\")
+    entry = entry.replace("\\", "/")
     base = os.path.basename(entry)
     if not base:
         return ""
@@ -165,6 +182,23 @@ def norm_program(entry: str) -> str:
     if not base.endswith(".exe"):
         base += ".exe"
     return base
+
+
+def _stem(name: str) -> str:
+    """Nombre sin el .exe final, para comparar Windows <-> Linux.
+
+    En Linux psutil reporta "firefox" y la regla puede venir como
+    "firefox.exe" (o al revés). Sin esto nunca matchean y el bloqueo no
+    funciona en Linux; con esto "firefox" == "firefox.exe" en ambas.
+    """
+    name = (name or "").lower()
+    return name[:-4] if name.endswith(".exe") else name
+
+
+def in_never_block(name: str) -> bool:
+    """True si el proceso está protegido, con o sin .exe."""
+    candidate = _stem(norm_program(name))
+    return any(_stem(n) == candidate for n in NEVER_BLOCK)
 
 
 def match_program(name: str, blocked: Sequence[str], allowed: Sequence[str]) -> bool:
@@ -176,15 +210,16 @@ def match_program(name: str, blocked: Sequence[str], allowed: Sequence[str]) -> 
     Protege en la regla, no solo en quien la aplica.
     """
     # Acepta nombre suelto o ruta completa: se compara siempre por basename.
-    candidate = norm_program(name)
+    # Stems: "firefox" == "firefox.exe" para que las mismas reglas anden en ambos.
+    candidate = _stem(norm_program(name))
     if not candidate:
         return False
-    if candidate in NEVER_BLOCK:
+    if any(_stem(n) == candidate for n in NEVER_BLOCK):
         return False
-    allowed_set = {norm_program(a) for a in allowed}
+    allowed_set = {_stem(norm_program(a)) for a in allowed}
     if candidate in allowed_set:
         return False
-    blocked_set = {norm_program(b) for b in blocked}
+    blocked_set = {_stem(norm_program(b)) for b in blocked}
     return candidate in blocked_set
 
 

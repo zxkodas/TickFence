@@ -22,8 +22,27 @@ EXTENSION_IDS = {
 
 
 def program_data() -> Path:
-    base = os.environ.get("ProgramData") or r"C:\ProgramData"
+    if is_windows():
+        base = os.environ.get("ProgramData") or r"C:\ProgramData"
+        return Path(base) / APP_NAME
+    # ponytail: XDG primero, ~/.local/share fallback. Sin root, sin HKLM.
+    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
     return Path(base) / APP_NAME
+
+
+def runtime_dir() -> Path:
+    """Donde vive el socket IPC en Linux (XDG_RUNTIME_DIR o /tmp)."""
+    if is_windows():
+        return program_data()
+    base = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+    return Path(base) / APP_NAME.lower()
+
+
+def socket_path() -> Path:
+    if is_windows():
+        return Path(PIPE_NAME)
+    # ponytail: socket Unix en vez de named pipe. Mismo protocolo JSON.
+    return runtime_dir() / "tickfence.sock"
 
 
 def app_data() -> Path:
@@ -35,13 +54,20 @@ def is_windows() -> bool:
     return sys.platform.startswith("win")
 
 
-def is_elevated() -> bool:
-    """True si el proceso actual corre como Administrador."""
-    if not is_windows():
-        return True
-    import ctypes
+def is_linux() -> bool:
+    return sys.platform.startswith("linux")
 
+
+def is_elevated() -> bool:
+    """True si el proceso actual corre como Administrador/root."""
+    if is_windows():
+        import ctypes
+
+        try:
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            return False
     try:
-        return bool(ctypes.windll.shell32.IsUserAnAdmin())
-    except Exception:
+        return os.geteuid() == 0
+    except AttributeError:
         return False

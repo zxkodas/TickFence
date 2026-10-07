@@ -1,70 +1,83 @@
-"""Envoltorio del servicio de Windows.
+"""Motor con enforcement: servicio de Windows o servicio systemd de usuario.
 
-El servicio corre como LocalSystem y arranca automáticamente. Es el dueño
-real del bloqueo: la GUI solo le pide cosas por el named pipe.
+Windows: corre como LocalSystem (TickFenceService) y arranca solo.
+Linux: corre como unidad systemd --user (tickfence.service) con el guard
+armado; el IFEO no existe ahí y la capa dura es el guard de procesos.
+La GUI habla con ambos por el mismo protocolo (pipe vs socket Unix).
 """
 from __future__ import annotations
 
+import subprocess
 import sys
 import threading
 import time
 
-import win32event
-import win32service
-import win32serviceutil
-
 from . import paths
+
+try:
+    import win32event
+    import win32service
+    import win32serviceutil
+    _WIN = sys.platform.startswith("win")
+except ImportError:
+    win32event = None  # type: ignore
+    win32service = None  # type: ignore
+    win32serviceutil = None  # type: ignore
+    _WIN = False
+
 from .daemon import Engine
 
 
-class TickFenceService(win32serviceutil.ServiceFramework):
-    _svc_name_ = paths.SERVICE_NAME
-    _svc_display_name_ = paths.SERVICE_DISPLAY_NAME
-    _svc_description_ = (
-        "Aplica el bloqueo de programas y sitios de TickFence. "
-        "No lo detengas: si lo hacés, el bloqueo queda sin vigilar."
-    )
+if _WIN:
 
-    def __init__(self, args) -> None:
-        super().__init__(args)
-        self._stop_event = win32event.CreateEvent(None, 0, 0, None)
-        self._engine: Engine | None = None
+    class TickFenceService(win32serviceutil.ServiceFramework):
+        _svc_name_ = paths.SERVICE_NAME
+        _svc_display_name_ = paths.SERVICE_DISPLAY_NAME
+        _svc_description_ = (
+            "Aplica el bloqueo de programas y sitios de TickFence. "
+            "No lo detengas: si lo hacés, el bloqueo queda sin vigilar."
+        )
 
-    # -- ciclo de vida del servicio ---------------------------------------
-    def SvcStop(self) -> None:
-        self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
-        win32event.SetEvent(self._stop_event)
-        if self._engine:
-            self._engine.stop()
+        def __init__(self, args) -> None:
+            super().__init__(args)
+            self._stop_event = win32event.CreateEvent(None, 0, 0, None)
+            self._engine: Engine | None = None
 
-    def SvcDoRun(self) -> None:
-        try:
-            self._engine = Engine()
-            self._engine.start()
-        except Exception as exc:  # noqa: BLE001
-            # NO usar win32logging aca sin proteccion: pywin32 311+ ya no lo
-            # distribuye, y el import se caia DENTRO del except, tapando el
-            # error real con un ModuleNotFoundError. Un modulo que sirve para
-            # registrar errores no puede ser la unica forma de reportarlos.
-            try:
-                import win32logging  # type: ignore
-
-                win32logging.LogError(
-                    0xE001, "TickFence no pudo arrancar: %s", str(exc)
-                )
-            except Exception:  # noqa: BLE001
-                try:
-                    sys.stderr.write(f"[tickfence] no pudo arrancar: {exc}\n")
-                    sys.stderr.flush()
-                except Exception:  # noqa: BLE001
-                    pass
-            return
-        self.ReportServiceStatus(win32service.SERVICE_RUNNING)
-        try:
-            win32event.WaitForSingleObject(self._stop_event, win32event.INFINITE)
-        finally:
+        # -- ciclo de vida del servicio ---------------------------------------
+        def SvcStop(self) -> None:
+            self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
+            win32event.SetEvent(self._stop_event)
             if self._engine:
                 self._engine.stop()
+
+        def SvcDoRun(self) -> None:
+            try:
+                self._engine = Engine()
+                self._engine.start()
+            except Exception as exc:  # noqa: BLE001
+                # NO usar win32logging aca sin proteccion: pywin32 311+ ya no lo
+                # distribuye, y el import se caia DENTRO del except, tapando el
+                # error real con un ModuleNotFoundError. Un modulo que sirve para
+                # registrar errores no puede ser la unica forma de reportarlos.
+                try:
+                    import win32logging  # type: ignore
+
+                    win32logging.LogError(
+                        0xE001, "TickFence no pudo arrancar: %s", str(exc)
+                    )
+                except Exception:  # noqa: BLE001
+                    try:
+                        sys.stderr.write(f"[tickfence] no pudo arrancar: {exc}\n")
+                        sys.stderr.flush()
+                    except Exception:  # noqa: BLE001
+                        pass
+                return
+            self.ReportServiceStatus(win32service.SERVICE_RUNNING)
+            try:
+                win32event.WaitForSingleObject(self._stop_event, win32event.INFINITE)
+            finally:
+                if self._engine:
+                    self._engine.stop()
 
 
 def _service_command() -> str | None:
@@ -81,14 +94,10 @@ def _service_command() -> str | None:
 
 
 def install(display: bool = True) -> None:
-    """Registra y arranca el servicio.
-
-    Errores de pywin32 que ya se corrigieron y conviene no repetir:
-      - el keyword es `displayName`, no `serviceDisplayName`
-      - `StartService` vive en win32service y toma 2 argumentos
-      - NO hay que pasar `exeArgs`: la clase va en el registro y el proceso
-        la lee de ahi
-    """
+    """Registra y arranca el servicio (Windows) o la unidad systemd (Linux)."""
+    if not _WIN:
+        _install_linux(display=display)
+        return
     already = _is_installed()
     if already:
         print("  el servicio ya existia, se reinstala…")
@@ -141,6 +150,8 @@ def reconcile_ifeo() -> list[str]:
 
 
 def _is_installed() -> bool:
+    if not _WIN:
+        return _unit_path().exists()
     try:
         win32service.OpenService(
             win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT),
@@ -159,6 +170,8 @@ def is_running() -> bool:
     escribir va a sobrevivir o lo va a pisar el servicio con lo que tiene en
     memoria.
     """
+    if not _WIN:
+        return _systemctl("is-active", "--quiet", _UNIT) == 0
     if not _is_installed():
         return False
     try:
@@ -179,6 +192,10 @@ def start(timeout: float = 20.0) -> bool:
     la llamada vuelve apenas se acepta el arranque, no cuando termino de
     levantar, y la app necesita el pipe listo para poder hablar con el.
     """
+    if not _WIN:
+        if _systemctl("start", _UNIT) != 0:
+            raise RuntimeError("No se pudo arrancar tickfence.service")
+        return _wait_active(timeout)
     handle = win32service.OpenService(
         win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT),
         paths.SERVICE_NAME,
@@ -209,6 +226,9 @@ def start(timeout: float = 20.0) -> bool:
 
 def stop(timeout: float = 15.0) -> None:
     """Detiene el servicio si está corriendo. Silencioso si ya está parado."""
+    if not _WIN:
+        _systemctl("stop", _UNIT)
+        return
     try:
         handle = win32service.OpenService(
             win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT),
@@ -262,12 +282,20 @@ def _parar_y_borrar(nombre: str) -> bool:
 
 
 def uninstall() -> None:
-    """Detiene el servicio, lo borra y limpia las claves IFEO.
+    """Detiene el servicio, lo borra y limpia las claves IFEO (Windows).
 
-    Los IFEO se limpian SIEMPRE: si quedan, los programas bloqueados siguen
-    sin arrancar aunque TickFence ya no exista, y el usuario no tiene forma de
-    recuperarlos sin saber que volver a borrarlos a mano.
+    En Linux detiene y borra la unidad systemd de usuario. No hay IFEO:
+    `ifeo.clear` es no-op ahí y el guard muere con el proceso.
     """
+    if not _WIN:
+        _uninstall_linux()
+        try:
+            from . import shortcuts
+
+            shortcuts.uninstall()
+        except Exception:
+            pass
+        return
     # Servicios de versiones anteriores del nombre. Tras un rebrandeo el viejo
     # queda corriendo: ocupa pythonservice.exe y el puerto del servidor HTTP, y
     # la instalacion nueva falla con "Acceso denegado" y "WinError 10048" sin
@@ -308,6 +336,80 @@ def _service_args_look_right() -> bool:
     return _service_command() is None
 
 
+# ---------------------------------------------------------------------------
+# Backend Linux: unidad systemd de usuario. Sin root, sin HKLM.
+# ---------------------------------------------------------------------------
+_UNIT = "tickfence.service"
+
+
+def _unit_path():
+    from pathlib import Path
+
+    base = __import__("os").environ.get("XDG_CONFIG_HOME") or str(
+        Path.home() / ".config"
+    )
+    return Path(base) / "systemd" / "user" / _UNIT
+
+
+def _systemctl(*args: str) -> int:
+    try:
+        return subprocess.run(
+            ["systemctl", "--user", *args],
+            capture_output=True,
+            timeout=30,
+        ).returncode
+    except Exception:
+        return 1
+
+
+def _unit_text() -> str:
+    exe = sys.executable
+    return f"""[Unit]
+Description=TickFence Enforcement Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart={exe} -m focuslock daemon
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+"""
+
+
+def _wait_active(timeout: float) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _systemctl("is-active", "--quiet", _UNIT) == 0:
+            return True
+        time.sleep(0.5)
+    raise RuntimeError(f"El servicio no quedó activo en {timeout:.0f}s.")
+
+
+def _install_linux(display: bool = True) -> None:
+    unit = _unit_path()
+    unit.parent.mkdir(parents=True, exist_ok=True)
+    unit.write_text(_unit_text(), encoding="utf-8")
+    _systemctl("daemon-reload")
+    _systemctl("enable", "--now", _UNIT)
+    if display:
+        _wait_active(20.0)
+        print(f"  unidad    : {unit}")
+        print("  estado    : systemctl --user status tickfence")
+
+
+def _uninstall_linux() -> None:
+    _systemctl("disable", "--now", _UNIT)
+    try:
+        _unit_path().unlink()
+    except OSError:
+        pass
+    _systemctl("daemon-reload")
+
+
 def run_console(arm_guard: bool = False) -> int:
     """Ejecuta el motor en primer plano (para depurar).
 
@@ -323,7 +425,10 @@ def run_console(arm_guard: bool = False) -> int:
         flush=True,
     )
     print(f"TickFence motor en marcha. Ctrl+C para salir.", flush=True)
-    print(f"  pipe  : {paths.PIPE_NAME}", flush=True)
+    if paths.is_windows():
+        print(f"  pipe  : {paths.PIPE_NAME}", flush=True)
+    else:
+        print(f"  socket: {paths.socket_path()}", flush=True)
     print(f"  estado: http://127.0.0.1:{engine.store.get('server_port', 0)}/state", flush=True)
     try:
         while True:
@@ -336,6 +441,8 @@ def run_console(arm_guard: bool = False) -> int:
 
 
 if __name__ == "__main__":
+    if not _WIN:
+        raise SystemExit("En Linux el motor lo arranca systemd: systemctl --user start tickfence")
     # pythonservice.exe llama con -u -m focuslock.service --start-service.
     # HandleCommandLine ve "--start-service" y arranca la clase del servicio,
     # que es lo que busca en la funcion ServiceMain.

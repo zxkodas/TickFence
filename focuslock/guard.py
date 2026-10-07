@@ -12,7 +12,7 @@ from typing import Callable
 
 import psutil
 
-from .rules import DEFAULT_DANGEROUS, NEVER_BLOCK, norm_program
+from .rules import DEFAULT_DANGEROUS, NEVER_BLOCK, _stem, in_never_block, norm_program
 
 
 class ProcessGuard:
@@ -80,7 +80,7 @@ class ProcessGuard:
             if proc.pid in self._protected_pids:
                 return True
             name = (proc.name() or "").lower()
-            if name in NEVER_BLOCK or name in self._self_names:
+            if in_never_block(name) or _stem(name) in {_stem(n) for n in self._self_names}:
                 return True
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             return True
@@ -131,7 +131,9 @@ class ProcessGuard:
 
         for info in procs:
             name = (info.info.get("name") or "").lower()
-            if not name or name in NEVER_BLOCK or name in self._self_names:
+            if not name or in_never_block(name):
+                continue
+            if _stem(name) in {_stem(n) for n in self._self_names}:
                 continue
             if info.pid in self._protected_pids:
                 continue
@@ -168,8 +170,15 @@ class ProcessGuard:
 
 def system_executables() -> set[str]:
     """Rutas de ejecutables del sistema, para la UI de advertencia."""
+    import sys
+
+    if not sys.platform.startswith("win"):
+        # ponytail: en Linux no hay equiv. a System32 (en distros usrmerge
+        # /sbin es symlink a /usr/bin: escanearlo marcaría steam/firefox como
+        # "peligrosos"). Lo peligroso ya está en NEVER_BLOCK/DEFAULT_DANGEROUS.
+        return set()
     roots = [os.environ.get("SystemRoot", r"C:\Windows")]
-    found: set[str] = set()
+    found = set()
     for root in roots:
         for sub in ("System32", "SysWOW64"):
             base = os.path.join(root, sub)
@@ -185,12 +194,20 @@ def system_executables() -> set[str]:
 
 
 def is_dangerous(exe: str) -> bool:
-    """True si bloquear este .exe puede romper Windows o la app misma."""
+    """True si bloquear este ejecutable puede romper el sistema o la app."""
+    raw = (exe or "").lower().replace("/", "\\")
+    # Ruta de sistema Windows: peligrosa en ambos SO (el test la construye
+    # en Linux y la regla puede viajar entre máquinas).
+    if "system32\\" in raw or "syswow64\\" in raw:
+        return True
     exe = norm_program(exe)
     if not exe:
         return True
-    if exe in NEVER_BLOCK or exe in DEFAULT_DANGEROUS:
+    stem = _stem(exe)
+    if any(_stem(n) == stem for n in NEVER_BLOCK):
+        return True
+    if any(_stem(n) == stem for n in DEFAULT_DANGEROUS):
         return True
     if exe.startswith("focuslock") or exe.startswith("tickfence"):
         return True
-    return exe in {norm_program(p) for p in system_executables()}
+    return stem in {_stem(norm_program(p)) for p in system_executables()}

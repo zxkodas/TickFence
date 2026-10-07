@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import sys
 import unittest
 from pathlib import Path
 
@@ -47,6 +48,8 @@ def _load() -> dict:
 
 class TestWin32ApiUsage(unittest.TestCase):
     def setUp(self):
+        if not sys.platform.startswith("win"):
+            self.skipTest("pywin32 solo existe en Windows")
         self.mods = _load()
         self.assertGreater(len(self.mods), 5, "pywin32 no parece instalado")
 
@@ -258,6 +261,8 @@ class TestServiceLifecycle(unittest.TestCase):
             self.assertTrue(callable(getattr(service, name, None)), name)
 
     def test_service_framework_metadata(self):
+        if not sys.platform.startswith("win"):
+            self.skipTest("servicio Windows solo existe en Windows")
         from focuslock.paths import SERVICE_DISPLAY_NAME, SERVICE_NAME
         from focuslock.service import TickFenceService
 
@@ -325,6 +330,8 @@ class TestServiceLifecycle(unittest.TestCase):
         self.assertIn("TickFenceService", source)
 
     def test_python_class_string_is_fully_qualified(self):
+        if not sys.platform.startswith("win"):
+            self.skipTest("servicio Windows solo existe en Windows")
         """`focuslock.service` solo no alcanza: pywin32 quiere modulo.Clase.
 
         Se importa de verdad lo que se registra: lo que importa es que el
@@ -349,6 +356,8 @@ class TestServiceLifecycle(unittest.TestCase):
         self.assertEqual(class_name, "TickFenceService")
 
     def test_install_service_writes_python_class_to_registry(self):
+        if not sys.platform.startswith("win"):
+            self.skipTest("servicio Windows solo existe en Windows")
         """Verifica que pywin32 realmente escribe la clase donde dice."""
         import inspect
 

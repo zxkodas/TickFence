@@ -8,7 +8,8 @@ pisa el state.json con lo que tiene en memoria. Por eso el comando intenta
 pararlo primero y, si no puede, verifica al final si lo que escribió llegó a
 quedar: si no quedó, lo dice y sale con codigo de error en vez de decir "Listo".
 
-Detener el servicio necesita Administrador. Sin el, el reset se puede hacer
+Detener el servicio necesita Administrador (Windows) o ser el dueño de la
+unidad systemd (Linux, sin sudo). Sin el, el reset se puede hacer
 igual pero el estado no se sostiene: se avisa.
 """
 from __future__ import annotations
@@ -126,11 +127,18 @@ def main() -> int:
         print("  Sin pararlo, el reset NO sirve: el servicio tiene el estado en")
         print("  memoria y sobreescribe el archivo enseguida. Se pierde siempre.")
         print()
-        print("  Corré esto en PowerShell como Administrador:")
-        print()
-        print("      Stop-Service TickFenceSvc")
-        print("      python -m focuslock reset")
-        print("      Start-Service TickFenceSvc")
+        if sys.platform.startswith("win"):
+            print("  Corré esto en PowerShell como Administrador:")
+            print()
+            print("      Stop-Service TickFenceSvc")
+            print("      python -m focuslock reset")
+            print("      Start-Service TickFenceSvc")
+        else:
+            print("  Corré esto (sin sudo):")
+            print()
+            print("      systemctl --user stop tickfence")
+            print("      python -m focuslock reset")
+            print("      systemctl --user start tickfence")
         print()
         print("  No se escribe nada ahora, para no dejar el archivo a medias.")
         return 2

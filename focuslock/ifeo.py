@@ -1,18 +1,23 @@
-"""Capa dura de bloqueo: Image File Execution Options (HKLM).
+"""Capa dura de bloqueo: Image File Execution Options (HKLM) en Windows.
 
-Cuando el sistema ve la clave IFEO de un .exe con un valor `Debugger`, no
-ejecuta el programa: ejecuta el debugger con la línea de comando original
-pegada atrás. Nosotros apuntamos ese valor a TickFence, que muestra un aviso y
-termina. El programa bloqueado simplemente no llega a arrancar.
-
-Ventaja clave para nuestro caso: el usuario normal NO puede borrar claves de
-HKLM sin elevación, así que el bloqueo sobrevive a la tentación.
+En Linux no hay IFEO: este módulo existe para que los imports no revienten,
+pero no escribe nada (la capa dura ahí es el guard de procesos + el servicio
+systemd). `sync()` devuelve el mismo dict para no romper a los llamadores.
 """
 from __future__ import annotations
 
-import winreg
-import winreg as _winreg  # noqa: F401  (alias explicito para el chequeo de tests)
-import win32con
+import sys
+
+try:
+    import winreg
+    import winreg as _winreg  # noqa: F401  (alias explicito para el chequeo de tests)
+    import win32con
+    _WIN = sys.platform.startswith("win")
+except ImportError:
+    winreg = None  # type: ignore
+    _winreg = None  # type: ignore
+    win32con = None  # type: ignore
+    _WIN = False
 
 from . import paths
 from .rules import norm_program
@@ -66,6 +71,8 @@ def set_blocker(exe: str, stub_command: str) -> None:
     if not exe:
         raise ValueError("Ejecutable invalido")
     value = _debugger_value(stub_command)
+    if not _WIN:
+        return  # sin IFEO en Linux: el guard es la capa dura
     with _open_write(exe) as key:
         for name in _VALUES:
             winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
@@ -75,6 +82,8 @@ def clear(exe: str) -> None:
     """Quita el bloqueo de `exe`. Silencioso si no existía."""
     exe = norm_program(exe)
     if not exe:
+        return
+    if not _WIN:
         return
     try:
         with _open_write(exe) as key:
@@ -93,7 +102,7 @@ def clear(exe: str) -> None:
 
 def is_blocked(exe: str) -> bool:
     exe = norm_program(exe)
-    if not exe:
+    if not exe or not _WIN:
         return False
     try:
         with _open_read(exe) as key:
@@ -106,6 +115,8 @@ def is_blocked(exe: str) -> bool:
 def list_blocked() -> list[str]:
     """Todos los .exe que tienen una clave IFEO con Debugger apuntando a TickFence."""
     found: list[str] = []
+    if not _WIN:
+        return found
     try:
         root = winreg.OpenKey(
             winreg.HKEY_LOCAL_MACHINE, paths.IFEO_KEY, 0, winreg.KEY_READ

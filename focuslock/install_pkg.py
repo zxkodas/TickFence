@@ -26,28 +26,34 @@ def install() -> int:
     print(f"  proyecto: {PROJECT}")
     print(f"  python  : {sys.executable}")
 
-    # 1) Instalacion real en site-packages: es lo que encuentra el servicio.
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", str(PROJECT)],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        print(f"  FALLO pip install:\n{result.stdout}\n{result.stderr}")
-        return 1
-    print("  TickFence instalado en site-packages")
+    if not (PROJECT / "pyproject.toml").exists():
+        # Ya corre desde site-packages (p. ej. reinstalación desde el venv):
+        # no hay nada que copiar, solo verificar que se importa.
+        print("  ya corre desde site-packages, no hace falta reinstalar")
+    else:
+        # 1) Instalacion real en site-packages: es lo que encuentra el servicio.
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", str(PROJECT)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(f"  FALLO pip install:\n{result.stdout}\n{result.stderr}")
+            return 1
+        print("  TickFence instalado en site-packages")
 
     # 2) Verificar que un interprete limpio lo encuentre desde otro directorio.
+    probe_dir = r"C:\Windows\System32" if sys.platform.startswith("win") else "/"
     check = subprocess.run(
         [sys.executable, "-c", "import focuslock.service as s; print(s.__file__)"],
         capture_output=True,
         text=True,
-        cwd=r"C:\Windows\System32",
+        cwd=probe_dir,
     )
     if check.returncode != 0:
         print(f"  FALLO la verificacion: {check.stderr.strip()}")
         return 1
-    print(f"  verificado desde System32: {check.stdout.strip()}")
+    print(f"  verificado desde {probe_dir}: {check.stdout.strip()}")
 
     # 3) Limpiar una copia vieja si el proyecto se movio, para no confundir.
     site = Path(check.stdout.strip()).parent

@@ -1,32 +1,30 @@
-"""Arregla los permisos de los archivos de TickFence en ProgramData.
+"""Arregla los permisos de los archivos de TickFence.
 
-El instalador corre elevado, asi que los archivos que crea quedan con ACL de
-solo lectura para el usuario normal. Consecuencia: la GUI en modo standalone
-puede guardar el token (va a state.json, que ya tiene FullControl) pero NO la
-configuracion, y falla con "Acceso denegado" sin explicar nada.
-
-La solucion es que el instalador devuelva la propiedad de los archivos al
-usuario que los va a editar. El servicio corre como LocalSystem, asi que
-sigue teniendo acceso de lectura/escritura para el bloqueo.
+Windows: el instalador corre elevado y los archivos quedan solo-lectura para
+el usuario normal; se devuelve la propiedad via ACL (SYSTEM y admins conservan
+control total).
+Linux: state.json (tokens) queda en 0600; config.json en 0644.
 """
 from __future__ import annotations
 
+import os
 import sys
 
-import win32api
-import win32con
-import win32file
-import win32security
+if sys.platform.startswith("win"):
+    import win32api
+    import win32con
+    import win32file
+    import win32security
 
-# Las constantes de acceso a archivos viven en win32file y win32con, NO en
-# win32security. Los SID conocidos y las ACEs, en win32security.
-FILE_ALL_ACCESS = win32file.FILE_ALL_ACCESS
-FILE_GENERIC_READ = win32file.FILE_GENERIC_READ
-WRITE_DAC = win32con.WRITE_DAC
-OBJECT_INHERIT_ACE = win32con.OBJECT_INHERIT_ACE
-CONTAINER_INHERIT_ACE = win32con.CONTAINER_INHERIT_ACE
-ACL_REVISION = win32security.ACL_REVISION
-DACL_SECURITY_INFORMATION = win32con.DACL_SECURITY_INFORMATION
+    # Las constantes de acceso a archivos viven en win32file y win32con, NO en
+    # win32security. Los SID conocidos y las ACEs, en win32security.
+    FILE_ALL_ACCESS = win32file.FILE_ALL_ACCESS
+    FILE_GENERIC_READ = win32file.FILE_GENERIC_READ
+    WRITE_DAC = win32con.WRITE_DAC
+    OBJECT_INHERIT_ACE = win32con.OBJECT_INHERIT_ACE
+    CONTAINER_INHERIT_ACE = win32con.CONTAINER_INHERIT_ACE
+    ACL_REVISION = win32security.ACL_REVISION
+    DACL_SECURITY_INFORMATION = win32con.DACL_SECURITY_INFORMATION
 
 
 def build_acl():
@@ -54,7 +52,18 @@ def build_acl():
 
 
 def fix_paths(paths: list[str]) -> list[tuple[str, bool]]:
-    """Aplica la ACL. Devuelve (ruta, exito)."""
+    """Aplica la ACL (Windows) o chmod 0600/0644 (Linux). Devuelve (ruta, exito)."""
+    if not sys.platform.startswith("win"):
+        # ponytail: el secreto vive en state.json -> 0600. Sin ACL ni libs.
+        results = []
+        for path in paths:
+            try:
+                mode = 0o600 if path.endswith("state.json") else 0o644
+                os.chmod(path, mode)
+                results.append((path, True))
+            except Exception as exc:  # noqa: BLE001
+                results.append((f"{path} -> {exc}", False))
+        return results
     dacl = build_acl()
     results = []
     for path in paths:
@@ -76,7 +85,12 @@ if __name__ == "__main__":
     for name in ("config.json", "state.json"):
         targets.append(str(paths.program_data() / name))
 
-    print(f"Usuario: {win32api.GetUserName()}")
+    if sys.platform.startswith("win"):
+        print(f"Usuario: {win32api.GetUserName()}")
+    else:
+        import getpass
+
+        print(f"Usuario: {getpass.getuser()}")
     print("Aplicando permisos...")
     ok = True
     for target, success in fix_paths(targets):

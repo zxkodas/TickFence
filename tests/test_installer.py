@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import os
 import re
 import tomllib
 import unittest
@@ -47,7 +48,10 @@ class TestFuentesDelInstalador(unittest.TestCase):
 
         faltantes = []
         for fuente in fuentes:
-            # Los Source con comodin (focuslock\*) son Carpeta completa: lo
+            # El .iss escribe rutas Windows (..\\focuslock\\*): en Linux la
+            # barra invertida no separa, se normaliza antes de comparar.
+            fuente = fuente.replace("\\", os.sep)
+            # Los Source con comodin (focuslock/*) son carpeta completa: lo
             # que importa es que la carpeta exista.
             if fuente.endswith("*"):
                 raiz = fuente.rstrip("*").rstrip("\\/")

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -81,6 +82,12 @@ class Store:
             finally:
                 if os.path.exists(tmp):
                     os.unlink(tmp)
+            # El token vive acá: solo el dueño lo lee (en Windows lo cubre DPAPI).
+            if not sys.platform.startswith("win"):
+                try:
+                    os.chmod(self._path, 0o600)
+                except OSError:
+                    pass
 
     def get(self, key: str, default: Any = None) -> Any:
         with self._lock:

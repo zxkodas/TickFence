@@ -1,4 +1,4 @@
-"""Backend alternativo para cuando el servicio de Windows no esta instalado.
+"""Backend alternativo para cuando el servicio no esta instalado.
 
 El servicio es el dueño del *bloqueo*, pero no tiene por que ser el dueño de
 la *interfaz*. Si el servicio no responde, la GUI puede seguir siendo util:
@@ -23,7 +23,7 @@ from . import ifeo, secrets
 from .config import Config
 from .gate import Gate
 from .guard import is_dangerous
-from .rules import NEVER_BLOCK, match_program, norm_program, norm_site
+from .rules import in_never_block, match_program, norm_program, norm_site
 from .server import StateServer
 from .store import Store
 from .ticktick import TickTickClient, TickTickError
@@ -91,7 +91,7 @@ class LocalBackend:
         if handler is None:
             if command in SERVICE_ONLY:
                 raise RuntimeError(
-                    "Este comando necesita el servicio de Windows instalado."
+                    "Este comando necesita el servicio instalado."
                 )
             raise KeyError(f"Comando desconocido: {command}")
         result = handler(payload)
@@ -156,8 +156,8 @@ class LocalBackend:
             "locked": True,
             "enforcement": False,
             "message": (
-                "Contador de Lecturas reiniciado. Ojo: sin el servicio de "
-                "Windows corriendo esto no bloquea nada, solo lleva la cuenta."
+                "Contador de Lecturas reiniciado. Ojo: sin el servicio "
+                "corriendo esto no bloquea nada, solo lleva la cuenta."
             ),
         }
 
@@ -202,9 +202,9 @@ class LocalBackend:
             "seconds": verdict.seconds,
             "errors": [
                 "Cumpliste los requisitos y tu compromiso quedó registrado.",
-                "Pero el servicio de Windows no está corriendo, así que ahora "
+                "Pero el servicio no está corriendo, así que ahora "
                 "mismo no hay nada bloqueado que desbloquear.",
-                "Instalalo con: install.ps1 (como administrador)",
+                "Instalalo con: python -m focuslock install (Linux) o install.ps1 (Windows como administrador)",
             ],
         }
 
@@ -243,6 +243,7 @@ class LocalBackend:
         if not section or not isinstance(values, dict):
             raise ValueError("Falta 'section' o 'values'")
         self.config.set(section, values)
+        self.config.save()
         if section == "ticktick":
             status = self.gate.poll()
             return {"ok": True, "credits": status.credits, "required": status.required}
@@ -268,7 +269,7 @@ class LocalBackend:
         danger = is_dangerous(value) if section == "programs" else False
 
         if add:
-            if section == "programs" and value in NEVER_BLOCK:
+            if section == "programs" and in_never_block(value):
                 return {
                     "ok": False,
                     "immutable": True,
@@ -276,7 +277,7 @@ class LocalBackend:
                     "value": value,
                     "list": items,
                     "message": (
-                        f"{value} es un proceso protegido de Windows: TickFence "
+                        f"{value} es un proceso protegido del sistema: TickFence "
                         "nunca lo bloquea, y agregarlo a la lista no tendría efecto."
                     ),
                 }
@@ -294,7 +295,7 @@ class LocalBackend:
                     "value": value,
                     "list": items,
                     "message": (
-                        f"{value} es un proceso crítico del sistema o de Windows. "
+                        f"{value} es un proceso crítico del sistema. "
                         "Bloquearlo puede dejar la PC inutilizable o impedir que "
                         "la propia app vuelva a abrirse."
                     ),
@@ -303,6 +304,7 @@ class LocalBackend:
             items = [i for i in items if i != value]
 
         self.config.set(section, {field: items})
+        self.config.save()
         return {"ok": True, "list": items, "dangerous": danger}
 
     def _cmd_programs_blocked_add(self, req): return self._list_op(req, "programs", "blocked", True)
@@ -316,7 +318,7 @@ class LocalBackend:
 
     def _cmd_ifeo_sync(self, req: dict) -> dict:
         raise RuntimeError(
-            "El IFEO requiere el servicio de Windows instalado con administrador."
+            "El IFEO solo existe en Windows con el servicio instalado como administrador."
         )
 
     def _cmd_install_ready(self, req: dict) -> dict:
@@ -344,4 +346,4 @@ class LocalBackend:
 
 def is_protected(name: str) -> bool:
     """Reexportado para que la UI pueda preguntar lo mismo que el motor."""
-    return match_program(name, [], []) is False and norm_program(name) in NEVER_BLOCK
+    return match_program(name, [], []) is False and in_never_block(name)

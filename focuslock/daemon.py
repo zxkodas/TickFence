@@ -23,8 +23,9 @@ from . import ifeo, secrets
 from .config import Config
 from .gate import Gate
 from .guard import ProcessGuard, is_dangerous
+from .i18n import tr
 from .ipc import IpcServer
-from .rules import NEVER_BLOCK, match_program, norm_program, norm_site
+from .rules import in_never_block, match_program, norm_program, norm_site
 from .server import StateServer
 from .store import Store
 from .ticktick import TickTickClient, TickTickError
@@ -34,11 +35,13 @@ def stub_command() -> str:
     """Comando que Windows ejecutará en lugar del programa bloqueado."""
     if getattr(sys, "frozen", False):
         return f'"{sys.executable}" --ifeo-stub'
-    exe = Path(sys.executable)
-    pyw = exe.with_name("pythonw.exe")
-    if not pyw.exists():
-        pyw = exe
-    return f'"{pyw}" "{Path(__file__).with_name("stub.py")}"'
+    if sys.platform.startswith("win"):
+        exe = Path(sys.executable)
+        pyw = exe.with_name("pythonw.exe")
+        if not pyw.exists():
+            pyw = exe
+        return f'"{pyw}" "{Path(__file__).with_name("stub.py")}"'
+    return f'"{sys.executable}" "{Path(__file__).with_name("stub.py")}"'
 
 
 def _host_only(rule: str) -> str:
@@ -79,6 +82,9 @@ class Engine:
         # El proceso de TickFence y OpenCode quedan intocables siempre.
         self.guard.protect_name("explorer.exe")
         self.guard.protect_name("opencode.exe")
+        if not sys.platform.startswith("win"):
+            self.guard.protect_name("gnome-shell")
+            self.guard.protect_name("systemd")
         self.server = StateServer(self.state_payload, self._server_token())
         self.ipc = IpcServer(self.handle)
         self._poller: threading.Thread | None = None
@@ -296,13 +302,21 @@ class Engine:
         self.gate.poll()
         self._sync_ifeo(force=True)
         applied = ifeo.list_blocked()
+        if sys.platform.startswith("win"):
+            message = tr(
+                "Lock on. {n} program(s) blocked at the Windows level. Finish "
+                "the Readings to release them."
+            ).format(n=len(applied))
+        else:
+            # Sin IFEO en Linux: el guard mata el proceso si arranca.
+            message = tr(
+                "Lock on. {n} program(s) watched by the process guard. Finish "
+                "the Readings to release them."
+            ).format(n=len(self.config.get("programs").get("blocked", [])))
         return {
             "locked": True,
             "ifeo": applied,
-            "message": tr(
-                "Lock on. {n} program(s) blocked at the Windows level. Finish "
-                "the Readings to release them."
-            ).format(n=len(applied)),
+            "message": message,
         }
 
     def _cmd_unlock(self, req: dict) -> dict:
@@ -484,7 +498,7 @@ class Engine:
 
         danger = is_dangerous(value) if section == "programs" else False
 
-        if add and section == "programs" and value in NEVER_BLOCK:
+        if add and section == "programs" and in_never_block(value):
             # El guard nunca los mata, pero no vale la pena guardarlos en la
             # lista: daria la impresion de que se pueden bloquear.
             return {
@@ -526,6 +540,8 @@ class Engine:
             items = [i for i in items if i != value]
 
         self.config.set(section, {field: items})
+        # Sin save() la lista vive solo en memoria y se pierde al reiniciar.
+        self.config.save()
         if section == "programs":
             self._sync_ifeo(force=True)
         return {"ok": True, "list": items, "dangerous": danger}

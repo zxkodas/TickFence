@@ -7,6 +7,7 @@ tests los atrapan sin needing privilegios.
 from __future__ import annotations
 
 import ast
+import sys
 import unittest
 from pathlib import Path
 
@@ -288,10 +289,17 @@ class TestInternalImports(unittest.TestCase):
     def test_service_module_exposes_expected_api(self):
         from focuslock import service
 
-        for name in ("install", "uninstall", "run_console", "TickFenceService"):
+        if sys.platform.startswith("win"):
+            names = ("install", "uninstall", "run_console", "TickFenceService")
+        else:
+            # En Linux no hay clase de servicio Windows: hay unidad systemd.
+            names = ("install", "uninstall", "run_console", "is_running", "start", "stop")
+        for name in names:
             self.assertTrue(hasattr(service, name), name)
 
     def test_service_kwargs_match_pywin32_signature(self):
+        if not sys.platform.startswith("win"):
+            self.skipTest("pywin32 solo existe en Windows")
         """Los keywords de InstallService deben existir en la version instalada.
 
         pywin32 usa `displayName`. Pasarle `serviceDisplayName` revienta el
@@ -328,6 +336,8 @@ class TestInternalImports(unittest.TestCase):
         Y al reves: `CloseServiceHandle` es de win32service, no de win32file.
         Estos errores solo aparecen ejecutando install, que exige admin.
         """
+        if not sys.platform.startswith("win"):
+            self.skipTest("pywin32 solo existe en Windows")
         import win32api
         import win32service
 
@@ -411,6 +421,8 @@ class TestInternalImports(unittest.TestCase):
 
     def test_service_class_names_match_service_module(self):
         """El pythonClassString del servicio debe apuntar a una clase real."""
+        if not sys.platform.startswith("win"):
+            self.skipTest("servicio Windows solo existe en Windows")
         from focuslock import service
         from focuslock.paths import SERVICE_NAME
 
@@ -420,6 +432,8 @@ class TestInternalImports(unittest.TestCase):
 
     def test_handlecommandline_can_load_the_class(self):
         """HandleCommandLine es lo que ejecuta Windows; debe poder resolver la clase."""
+        if not sys.platform.startswith("win"):
+            self.skipTest("servicio Windows solo existe en Windows")
         from focuslock.service import TickFenceService
 
         # Es lo que hace win32serviceutil al arrancar: resolve (pkg.mod, clase).

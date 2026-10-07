@@ -1,7 +1,7 @@
 """Punto de entrada de la línea de comandos.
 
     python -m focuslock gui         abre la ventana (no necesita admin)
-    python -m focuslock install     instala el servicio (necesita admin, 1 vez)
+    python -m focuslock install     instala el servicio (Windows: admin, 1 vez)
     python -m focuslock console     motor en primer plano, para depurar
     python -m focuslock status      consulta el estado al servicio
     python -m focuslock uninstall   desinstala todo
@@ -34,13 +34,11 @@ def _set_lang_from_config() -> None:
 
 
 def _need_admin(action: str) -> None:
-    if not is_windows():
-        print(tr("TickFence only runs on Windows."))
-        sys.exit(2)
-    if not is_elevated():
+    if is_windows() and not is_elevated():
         print(tr("'{a}' needs administrator rights.").format(a=action), file=sys.stderr)
         print(tr("Close this and reopen it as administrator."), file=sys.stderr)
         sys.exit(3)
+    # En Linux el servicio es systemd --user: no hace falta root ni sudo.
 
 
 def _wait_for_service(seconds: float = 25.0) -> bool:
@@ -91,8 +89,10 @@ def cmd_install(args) -> int:
 
     if not _wait_for_service():
         print(f"  ERROR: {tr('the service did not respond')}.", file=sys.stderr)
-        print(f"  {tr('Check the event viewer or try:')} "
-              f"python -m focuslock console", file=sys.stderr)
+        hint = ("journalctl --user -u tickfence --no-pager -n 30"
+                if not is_windows()
+                else f"{tr('Check the event viewer or try:')} python -m focuslock console")
+        print(f"  {hint}", file=sys.stderr)
         return 1
     print(f"  {tr('service ready')}.")
 
@@ -111,11 +111,14 @@ def cmd_install(args) -> int:
             print(f"  token    : ERROR {exc}", file=sys.stderr)
 
     from .daemon import stub_command
-    print(f"  IFEO stub: {stub_command()}")
-    blocked = ifeo.list_blocked()
-    print(f"  IFEO     : {len(blocked)} {tr('executables blocked at the Windows level')}")
-    if not blocked:
-        print(f"  ({tr('none: with the machine unlocked the IFEO is clean')})")
+    if is_windows():
+        print(f"  IFEO stub: {stub_command()}")
+        blocked = ifeo.list_blocked()
+        print(f"  IFEO     : {len(blocked)} {tr('executables blocked at the Windows level')}")
+        if not blocked:
+            print(f"  ({tr('none: with the machine unlocked the IFEO is clean')})")
+    else:
+        print(f"  guard    : proceso del servicio systemd (sin IFEO en Linux)")
 
     # Acceso desde Inicio/Escritorio e autoinicio: sin esto el ícono del área
     # de notificación no existe después de reiniciar y no hay forma de abrir
@@ -136,18 +139,23 @@ def cmd_install(args) -> int:
 def cmd_uninstall(args) -> int:
     _need_admin("uninstall")
     from . import ifeo
+    from . import paths as paths_mod
     from .service import uninstall as uninstall_service
 
-    print(f"{tr('Removing IFEO blocks')}…")
-    for exe in ifeo.list_blocked():
-        ifeo.clear(exe)
-        print(f"  {tr('cleared')}: {exe}")
+    if is_windows():
+        print(f"{tr('Removing IFEO blocks')}…")
+        for exe in ifeo.list_blocked():
+            ifeo.clear(exe)
+            print(f"  {tr('cleared')}: {exe}")
     print(f"{tr('Stopping and removing the service')}…")
     uninstall_service()
     # Sin f-string: la barra invertida de la ruta va DENTRO de la expresion
     # tr(...), y eso es legal desde 3.12 (PEP 701) pero SyntaxError en 3.11.
     # El prefijo f tampoco hacia falta, tr() no interpola nada.
-    print(tr("Done. You can delete C:\\ProgramData\\TickFence if you want to."))
+    if is_windows():
+        print(tr("Done. You can delete C:\\ProgramData\\TickFence if you want to."))
+    else:
+        print(tr("Done. Data lives in {p}.").format(p=paths_mod.program_data()))
     return 0
 
 
@@ -159,16 +167,16 @@ def cmd_console(args) -> int:
     contra la sesion interactiva del usuario desde una consola de desarrollo es
     exactamente como se te cae el escritorio.
     """
-    if not is_windows():
-        print("TickFence solo funciona en Windows.")
-        return 2
-
     from .service import run_console
 
-    if not is_elevated():
+    if is_windows() and not is_elevated():
         print("AVISO: sin permisos de administrador.")
         print("       Las claves IFEO no se pueden escribir y el bloqueo duro")
         print("       quedara desactivado. Usa 'install' desde una consola elevada.")
+        print("")
+    if not is_windows() and is_elevated():
+        print("AVISO: corriendo como root con el guard armado matas procesos")
+        print("       de TODOS los usuarios. Mejor sin sudo.")
         print("")
 
     if not getattr(args, "armar_guard", False):
@@ -307,6 +315,13 @@ def main(argv: list[str] | None = None) -> int:
         help="activa el vigilante de procesos. MATA PROGRAMAS de tu sesion.",
     )
     p_console.set_defaults(func=cmd_console)
+
+    p_daemon = sub.add_parser(
+        "daemon",
+        help="motor con guard armado (lo usa systemd, no lo corras a mano)",
+    )
+    p_daemon.set_defaults(func=lambda a: __import__(
+        "focuslock.service", fromlist=["run_console"]).run_console(arm_guard=True))
 
     p_gui = sub.add_parser("gui", help="abre la ventana")
     p_gui.set_defaults(func=cmd_gui)

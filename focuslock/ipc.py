@@ -1,23 +1,29 @@
-"""Canal de control entre la GUI (usuario normal) y el servicio (LocalSystem).
+"""Canal de control entre la GUI y el motor con enforcement.
 
-La GUI nunca habla directo con el registro ni con los procesos: todo pasa por
-un named pipe. Así el desbloqueo de emergencia funciona sin pedir elevación.
+Windows: named pipe `\\\\.\\pipe\\TickFence` (el motor corre como LocalSystem).
+Linux: socket Unix en `paths.socket_path()` (el motor corre como servicio
+systemd de usuario). El protocolo JSON es el mismo en ambos.
 """
 from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
 import threading
 import time
 from typing import Any, Callable
 
 import psutil
-import pywintypes
 
 from . import paths
 
 ENCODING = "utf-8"
+
+try:
+    import pywintypes  # type: ignore
+except ImportError:
+    pywintypes = None  # type: ignore
 
 
 def _log(message: str) -> None:
@@ -60,6 +66,8 @@ class IpcClient:
         self._retries = 2
 
     def call(self, command: str, retries: int | None = None, **payload: Any) -> dict[str, Any]:
+        if not paths.is_windows():
+            return self._call_unix(command, retries, **payload)
         import win32file  # type: ignore
         import win32pipe  # type: ignore
 
@@ -121,6 +129,48 @@ class IpcClient:
                         pass
         raise IpcError(str(last_error))
 
+    def _call_unix(self, command: str, retries: int | None = None, **payload: Any) -> dict[str, Any]:
+        """Mismo protocolo por socket Unix. Sin dependencias nuevas: stdlib."""
+        # ponytail: socket Unix + JSON-línea, permisos del fs como seguridad.
+        retries = self._retries if retries is None else retries
+        request = json.dumps({"cmd": command, "pid": os.getpid(), **payload}) + "\n"
+        data = request.encode(ENCODING)
+        sock_path = str(paths.socket_path())
+        last_error: Exception | None = None
+        for attempt in range(retries + 1):
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(self._timeout)
+                    sock.connect(sock_path)
+                    sock.sendall(data)
+                    chunks: list[bytes] = []
+                    while True:
+                        part = sock.recv(65536)
+                        if not part:
+                            break
+                        chunks.append(part)
+                        if b"\n" in part:
+                            break
+                text = b"".join(chunks).decode(ENCODING, errors="replace").strip()
+                if not text:
+                    raise IpcError("El servicio no respondio.")
+                result = json.loads(text.splitlines()[-1])
+                if not result.get("ok"):
+                    raise IpcError(result.get("error") or "Error desconocido del servicio.")
+                return result.get("data", {})
+            except IpcError:
+                raise
+            except (OSError, ConnectionError) as exc:
+                last_error = exc
+                if attempt < retries:
+                    time.sleep(0.4 * (attempt + 1))
+                    continue
+                raise IpcError(
+                    f"No se pudo contactar al servicio de TickFence ({sock_path}). "
+                    "Esta corriendo? (systemctl --user status tickfence)"
+                ) from exc
+        raise IpcError(str(last_error))
+
 
 # ---------------------------------------------------------------------------
 # Servidor (corre dentro del servicio)
@@ -141,6 +191,11 @@ class IpcServer:
         self._stop = threading.Event()
 
     def start(self) -> None:
+        if not paths.is_windows():
+            self._stop.clear()
+            self._thread = threading.Thread(target=self._run_unix, name="ipc-server", daemon=True)
+            self._thread.start()
+            return
         import win32pipe  # type: ignore
 
         self._win32pipe = win32pipe
@@ -171,6 +226,16 @@ class IpcServer:
 
     def stop(self) -> None:
         self._stop.set()
+        if not paths.is_windows():
+            # Despierta al accept() conectándose al propio socket.
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(1.0)
+                    sock.connect(str(paths.socket_path()))
+                    sock.sendall(b'{"cmd": "__stop__", "pid": 0}\n')
+            except Exception:
+                pass
+            return
         try:
             import win32file  # noqa: F401
 
@@ -269,6 +334,63 @@ class IpcServer:
                     win32file.CloseHandle(pipe)
                 except Exception:
                     pass
+
+    def _run_unix(self) -> None:
+        """Servidor en socket Unix. Misma serialización que el pipe."""
+        sock_path = paths.socket_path()
+        sock_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if sock_path.exists():
+                sock_path.unlink()
+        except OSError:
+            pass
+        reported = False
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(str(sock_path))
+            try:
+                os.chmod(sock_path, 0o600)
+            except OSError:
+                pass
+            server.listen(5)
+            server.settimeout(0.5)
+            while not self._stop.is_set():
+                try:
+                    conn, _ = server.accept()
+                except socket.timeout:
+                    continue
+                except OSError as exc:
+                    if not reported:
+                        _log(f"no se pudo aceptar en {sock_path}: {exc!r}")
+                        reported = True
+                    self._stop.wait(1.0)
+                    continue
+                with conn:
+                    try:
+                        chunks: list[bytes] = []
+                        conn.settimeout(10.0)
+                        while True:
+                            part = conn.recv(65536)
+                            if not part:
+                                break
+                            chunks.append(part)
+                            if b"\n" in part:
+                                break
+                        text = b"".join(chunks).decode(ENCODING, errors="replace").strip()
+                        if text == '{"cmd": "__stop__", "pid": 0}':
+                            continue
+                        response = self._dispatch(text)
+                        conn.sendall((json.dumps(response) + "\n").encode(ENCODING))
+                    except Exception as exc:  # noqa: BLE001
+                        try:
+                            err = {"ok": False, "error": f"Error interno: {exc}"}
+                            conn.sendall((json.dumps(err) + "\n").encode(ENCODING))
+                        except Exception:
+                            pass
+        try:
+            if sock_path.exists():
+                sock_path.unlink()
+        except OSError:
+            pass
 
     def _dispatch(self, text: str) -> dict[str, Any]:
         if not text:

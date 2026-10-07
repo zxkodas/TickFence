@@ -102,6 +102,8 @@ ES: dict[str, str] = {
     "Settings": "Ajustes",
     "Log": "Bitácora",
     "Service: LocalSystem": "Servicio: LocalSystem",
+    "Service: systemd user": "Servicio: systemd (usuario)",
+    "Install it (no admin needed):": "Instalalo (sin admin):",
     "Stop the things you picked, until you work": (
         "Frená lo que elijas hasta trabajar"
     ),
@@ -225,12 +227,12 @@ ES: dict[str, str] = {
     ),
     "Not enforcing": "Sin enforcement",
     (
-        "The Windows service is not running, so turning the lock on only resets "
-        "the Reading counter. To really block, install the service with install.ps1."
+        "The TickFence service is not running, so turning the lock on only resets "
+        "the Reading counter. To really block, install the service:"
     ): (
-        "El servicio de Windows no está corriendo, así que activar el bloqueo "
+        "El servicio de TickFence no está corriendo, así que activar el bloqueo "
         "solo reinicia el contador de Lecturas. Para bloquear de verdad "
-        "instalá el servicio con install.ps1."
+        "instalá el servicio:"
     ),
     (
         "There is no program in the blocked list, so this will not lock you out "
@@ -275,17 +277,16 @@ ES: dict[str, str] = {
     "Install it as administrator:": "Instalalo como administrador:",
     "No service running": "No hay servicio corriendo",
     (
-        "The token could not be saved because the Windows service is not "
+        "The token could not be saved because the TickFence service is not "
         "running.\n\n"
     ): (
-        "El token no se pudo guardar porque el servicio de Windows no está "
+        "El token no se pudo guardar porque el servicio de TickFence no está "
         "corriendo.\n\n"
     ),
     "Technical detail:": "Detalle técnico:",
     "Token rejected": "Token rechazado",
     "Check the token.": "Revisá el token.",
     # -- línea de comandos --------------------------------------------------
-    "TickFence only runs on Windows.": "TickFence solo funciona en Windows.",
     "'{a}' needs administrator rights.": "'{a}' necesita permisos de administrador.",
     "Close this and reopen it as administrator.": (
         "Cerrá esto y volvé a abrirlo como administrador."
@@ -322,6 +323,7 @@ ES: dict[str, str] = {
     "Done. You can delete C:\\ProgramData\\TickFence if you want to.": (
         "Listo. Podés borrar C:\\ProgramData\\TickFence si querés."
     ),
+    "Done. Data lives in {p}.": "Listo. Los datos viven en {p}.",
     "Service responding": "Servicio respondsiendo",
     "state": "estado",
     "HTTP port": "servidor HTTP puerto",
@@ -365,6 +367,10 @@ ES: dict[str, str] = {
         "Bloqueo activado. {n} programa(s) bloqueados a nivel Windows. "
         "Completá las Lecturas para liberarlos."
     ),
+    "Lock on. {n} program(s) watched by the process guard. Finish the Readings to release them.": (
+        "Bloqueo activado. {n} programa(s) vigilados por el guardián de procesos. "
+        "Completá las Lecturas para liberarlos."
+    ),
     "Unlocked for {n} min. Your commitment was recorded.": (
         "Desbloqueado por {n} min. Quedó registrado tu compromiso."
     ),
@@ -378,16 +384,19 @@ ES: dict[str, str] = {
     ),
     "TickFence in no-lock mode": "TickFence en modo sin bloqueo",
     (
-        "The Windows service is not running, so TickFence will show your "
+        "The TickFence service is not running, so TickFence will show your "
         "Reading status and save your settings, but it will NOT block any "
         "program.\n\n"
     ): (
-        "El servicio de Windows no está corriendo, así que TickFence va a "
+        "El servicio de TickFence no está corriendo, así que TickFence va a "
         "mostrarte el estado de tus Lecturas y a guardar la configuración, "
         "pero NO va a bloquear ningún programa.\n\n"
     ),
     "To make it really block, install it once as administrator:\n\n": (
         "Para que bloquee de verdad, instalalo una vez como administrador:\n\n"
+    ),
+    "To make it really block, install it once (no admin needed):\n\n": (
+        "Para que bloquee de verdad, instalalo una vez (sin admin):\n\n"
     ),
     "Meanwhile you can paste the token in Settings and watch it work.": (
         "Mientras tanto podés pegar el token en Ajustes y verlo funcionar."

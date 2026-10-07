@@ -1,18 +1,29 @@
-"""Acceso a TickFence desde el menú Inicio y el Escritorio.
+"""Acceso a TickFence desde el menú y el Escritorio.
 
-Solo accesos directos. NO hay autoinicio: si TickFence se abriera solo con
-Windows, seamlanzaría en cada inicio de sesión solo para vivir en el área de
-notificación. Abrir la app es una decisión del usuario.
+Windows: .lnk en Menú Inicio + Escritorio. Linux: .desktop en
+~/.local/share/applications (+ Escritorio si existe).
+
+Solo accesos directos. NO hay autoinicio: abrir la app es una decisión
+del usuario.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
-START_MENU = Path(__import__("os").environ.get("APPDATA", "")) / (
-    "Microsoft/Windows/Start Menu/Programs"
-)
-DESKTOP = Path(__import__("os").environ.get("USERPROFILE", "")) / "Desktop"
+if sys.platform.startswith("win"):
+    START_MENU = Path(os.environ.get("APPDATA", "")) / (
+        "Microsoft/Windows/Start Menu/Programs"
+    )
+    DESKTOP = Path(os.environ.get("USERPROFILE", "")) / "Desktop"
+else:
+    _XDG_DATA = Path(
+        os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    )
+    START_MENU = _XDG_DATA / "applications"
+    _XDG_DESKTOP = Path(os.environ.get("XDG_DESKTOP_DIR") or str(Path.home() / "Desktop"))
+    DESKTOP = _XDG_DESKTOP
 
 
 def _project_dir() -> Path | None:
@@ -73,23 +84,25 @@ def _project_dir() -> Path | None:
 # Nombres de acceso de versiones anteriores. Tras un rebrandeo quedan los
 # viejos en el Escritorio y en el Menú Inicio, y Windows los sigue
 # mostrando: se ven dos íconos y la búsqueda devuelve el nombre viejo.
-NOMBRES_ANTIGUOS = ("FocusLock.lnk",)
+NOMBRES_ANTIGUOS = ("FocusLock.lnk", "FocusLock.desktop")
 
 # Acceso de DESARROLLO. Convive con el de la release a proposito.
-#
-# El del Escritorio abre la release: es la que ve un usuario, no cambia
-# porque edites una linea, y es la unica que sobrevive si borraste o moviste
-# la carpeta. Este abre lo que estas programando, y se borra solo cuando el
-# proyecto deja de existir.
 DEV_NOMBRE = "TickFence (dev)"
+
+_EXT = ".lnk" if sys.platform.startswith("win") else ".desktop"
 
 
 def _dev_link_paths() -> list[Path]:
-    return [carpeta / f"{DEV_NOMBRE}.lnk" for carpeta in (START_MENU, DESKTOP)]
+    return [carpeta / f"{DEV_NOMBRE}{_EXT}" for carpeta in (START_MENU, DESKTOP)]
 
 
 def _link_paths() -> list[Path]:
-    return [START_MENU / "TickFence.lnk", DESKTOP / "TickFence.lnk"]
+    name = f"TickFence{_EXT}"
+    paths = [START_MENU / name]
+    # En Linux el Escritorio puede no existir (o ser otra ruta): solo si está.
+    if DESKTOP.exists() or sys.platform.startswith("win"):
+        paths.append(DESKTOP / name)
+    return paths
 
 
 def _stale_link_paths() -> list[Path]:
@@ -103,6 +116,32 @@ def _stale_link_paths() -> list[Path]:
     ]
 
 
+def _write_desktop(path: Path, workdir: str | None, description: str) -> None:
+    """Escribe un .desktop que abre la GUI. Sin deps nuevas: texto plano."""
+    target, args = _launcher()
+    cmd = f"{target} {args}".strip()
+    icono = _icon_path()
+    lines = [
+        "[Desktop Entry]",
+        "Type=Application",
+        "Name=TickFence" if "dev" not in description.lower() else "TickFence (dev)",
+        f"Comment={description}",
+        f"Exec={cmd}",
+        "Terminal=false",
+        "Categories=Utility;",
+    ]
+    if workdir:
+        lines.append(f"Path={workdir}")
+    if icono.exists():
+        lines.append(f"Icon={icono}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        path.chmod(0o755)
+    except OSError:
+        pass
+
+
 def create_dev_shortcut() -> list[Path]:
     """Crea el acceso que abre la app desde la carpeta del proyecto.
 
@@ -114,10 +153,20 @@ def create_dev_shortcut() -> list[Path]:
     if proyecto is None:
         return []
 
+    if not sys.platform.startswith("win"):
+        created: list[Path] = []
+        for link_path in _dev_link_paths():
+            try:
+                _write_desktop(link_path, str(proyecto), "TickFence - desarrollo")
+                created.append(link_path)
+            except Exception:
+                continue
+        return created
+
     import pythoncom
     from win32com.shell import shell
 
-    created: list[Path] = []
+    created = []
     target, args = _launcher()
     for link_path in _dev_link_paths():
         link_path.parent.mkdir(parents=True, exist_ok=True)
@@ -165,10 +214,24 @@ def remove_dev_shortcuts() -> list[str]:
 
 def create_shortcuts() -> list[Path]:
     """Crea el acceso directo del menú Inicio y del Escritorio."""
+    if not sys.platform.startswith("win"):
+        created: list[Path] = []
+        proyecto = _project_dir()
+        for link_path in _link_paths():
+            try:
+                _write_desktop(
+                    link_path,
+                    str(proyecto) if proyecto is not None else None,
+                    "TickFence - bloqueador de foco",
+                )
+                created.append(link_path)
+            except Exception:
+                continue
+        return created
     import pythoncom
     from win32com.shell import shell
 
-    created: list[Path] = []
+    created = []
     target, args = _launcher()
 
     for link_path in _link_paths():

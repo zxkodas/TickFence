@@ -75,11 +75,21 @@ def _target(argv: list[str]) -> str:
 def _state() -> dict:
     """Lee state.json para required/credits y el idioma. Nunca toca el token.
 
-    El estado vive en ProgramData. La UI no siempre esta abierta, asi que
-    leerlo desde el stub es la unica forma de que el aviso diga algo util.
+    La UI no siempre esta abierta, asi que leerlo desde el stub es la unica
+    forma de que el aviso diga algo util.
     """
-    base = os.environ.get("ProgramData") or r"C:\ProgramData"
-    path = Path(base) / "TickFence" / "state.json"
+    # Sin imports del paquete: Windows ejecuta este archivo suelto. ProgramData
+    # manda primero (los tests lo usan para redirigir el estado en Linux tb).
+    base = os.environ.get("ProgramData")
+    if base:
+        path = Path(base) / "TickFence" / "state.json"
+    elif sys.platform.startswith("win"):
+        path = Path(r"C:\ProgramData") / "TickFence" / "state.json"
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or str(
+            Path.home() / ".local" / "share"
+        )
+        path = Path(base) / "TickFence" / "state.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, ValueError):
@@ -134,16 +144,49 @@ def main() -> int:
     name = _target([a for a in argv if a != "--ifeo-stub"])
     idioma = _state().get("language", "en")
     titulo = ES["title"] if idioma == "es" else EN["title"]
+    texto = build_message(name, idioma if isinstance(idioma, str) else "en")
+    if sys.platform.startswith("win"):
+        try:
+            ctypes.windll.user32.MessageBoxW(
+                None,
+                texto,
+                titulo,
+                MB_OK | MB_ICONWARNING | MB_TOPMOST,
+            )
+        except Exception:
+            pass
+    else:
+        _notify_linux(titulo, texto)
+    return 0
+
+
+def _notify_linux(title: str, text: str) -> None:
+    """Aviso en Linux: notify-send, si no zenity, si no stderr. Nunca falla."""
+    import shutil
+    import subprocess
+
     try:
-        ctypes.windll.user32.MessageBoxW(
-            None,
-            build_message(name, idioma if isinstance(idioma, str) else "en"),
-            titulo,
-            MB_OK | MB_ICONWARNING | MB_TOPMOST,
-        )
+        if shutil.which("notify-send"):
+            subprocess.run(
+                ["notify-send", "-u", "critical", title, text[:2000]],
+                timeout=5,
+                check=False,
+            )
+            return
+        if shutil.which("zenity"):
+            subprocess.run(
+                ["zenity", "--warning", f"--title={title}", f"--text={text[:4000]}"],
+                timeout=30,
+                check=False,
+            )
+            return
     except Exception:
         pass
-    return 0
+    try:
+        sys.stderr.write(f"[{title}] {text}\n")
+        sys.stderr.flush()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

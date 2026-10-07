@@ -25,16 +25,35 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from focuslock.guard import ProcessGuard, is_dangerous  # noqa: E402
 from focuslock.rules import NEVER_BLOCK, match_program  # noqa: E402
 
+# En Linux el nombre del proceso (comm) se trunca a 15 caracteres y no hay
+# .exe: nombres cortos sin extension. En Windows se usan .exe largos.
+if sys.platform.startswith("win"):
+    BLOCKED_NAME = "TickFenceTestBlocked.exe"
+    ALLOWED_NAME = "TickFenceTestAllowed.exe"
+else:
+    BLOCKED_NAME = "tftestblocked"
+    ALLOWED_NAME = "tftestallowed"
+
+
+def _base(name: str) -> str:
+    """basename dual: os.path.basename no parte rutas Windows en Linux."""
+    return os.path.basename(name.replace("\\", "/")).lower()
+
+
 # Codigo del hijo: se queda esperando. -I aísla imports, -E ignora variables.
 CHILD_CODE = "import time; time.sleep(120)"
 
 
 def _make_child_binary(directory: Path, name: str) -> Path:
-    """Copia pythonw.exe (sin consola) con el nombre pedido."""
+    """Copia el interprete con el nombre pedido (pythonw.exe en Windows)."""
     source = Path(sys.executable)
     target = directory / name
-    candidate = source.with_name("pythonw.exe")
-    shutil.copy2(candidate if candidate.exists() else source, target)
+    if sys.platform.startswith("win"):
+        candidate = source.with_name("pythonw.exe")
+        shutil.copy2(candidate if candidate.exists() else source, target)
+    else:
+        shutil.copy2(source, target)
+        target.chmod(0o755)
     return target
 
 
@@ -50,8 +69,8 @@ class TestProcessGuardReal(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp(prefix="fl-guard-"))
-        cls.blocked_exe = _make_child_binary(cls.tmp, "TickFenceTestBlocked.exe")
-        cls.allowed_exe = _make_child_binary(cls.tmp, "TickFenceTestAllowed.exe")
+        cls.blocked_exe = _make_child_binary(cls.tmp, BLOCKED_NAME)
+        cls.allowed_exe = _make_child_binary(cls.tmp, ALLOWED_NAME)
 
     @classmethod
     def tearDownClass(cls):
@@ -67,7 +86,7 @@ class TestProcessGuardReal(unittest.TestCase):
     def test_kills_a_blocked_process(self):
         recorder = _Recorder()
         guard = ProcessGuard(
-            should_block=lambda n: match_program(n, ["tickfencetestblocked.exe"], []),
+            should_block=lambda n: match_program(n, [BLOCKED_NAME], []),
             on_block=recorder,
             interval=0.25,
         )
@@ -82,7 +101,7 @@ class TestProcessGuardReal(unittest.TestCase):
                 recorder.events, "el guardia no detectó el proceso bloqueado en 15s"
             )
             name, pid = recorder.events[0]
-            self.assertEqual(name, "tickfencetestblocked.exe")
+            self.assertEqual(name, BLOCKED_NAME.lower())
 
             deadline = time.time() + 6
             while time.time() < deadline and psutil.pid_exists(pid):
@@ -98,7 +117,7 @@ class TestProcessGuardReal(unittest.TestCase):
         """Con el nombre en la lista de permitidos, el proceso debe sobrevivir."""
         guard = ProcessGuard(
             should_block=lambda n: match_program(
-                n, ["tickfencetestblocked.exe"], ["tickfencetestallowed.exe"]
+                n, [BLOCKED_NAME], [ALLOWED_NAME]
             ),
             interval=0.25,
         )
@@ -164,6 +183,10 @@ class TestProcessGuardReal(unittest.TestCase):
             interval=0.25,
         )
         guard.protect(os.getpid())
+        # Solo el hijo puede ser objetivo: se protegen los PIDs que ya existen
+        # (en un escritorio Linux should_block=True mataría tus apps).
+        for pid in psutil.pids():
+            guard.protect(pid)
         guard.start()
         # El proceso de prueba SI es un objetivo valido (nombre no protegido).
         child = self._spawn(self.blocked_exe)
@@ -192,8 +215,8 @@ class TestProtectedProcesses(unittest.TestCase):
         for name in ("explorer.exe", "Explorer.EXE", r"C:\Windows\explorer.exe"):
             # Con ruta completa hay que comparar por basename: la regla
             # guarda nombres de archivo, no rutas.
-            base = os.path.basename(name).lower()
-            self.assertIn(base, NEVER_BLOCK, name)
+            base = _base(name)
+            self.assertIn(base, {_base(n) for n in NEVER_BLOCK}, name)
             self.assertFalse(
                 match_program(name, ["explorer.exe"], []),
                 f"{name} no debe poder bloquearse",
@@ -201,8 +224,8 @@ class TestProtectedProcesses(unittest.TestCase):
 
     def test_opencode_is_never_blocked(self):
         for name in ("OpenCode.exe", "opencode.exe", r"C:\Users\x\OpenCode.exe"):
-            base = os.path.basename(name).lower()
-            self.assertIn(base, NEVER_BLOCK, name)
+            base = _base(name)
+            self.assertIn(base, {_base(n) for n in NEVER_BLOCK}, name)
             self.assertFalse(match_program(name, ["opencode.exe"], []))
 
     def test_never_block_ignores_allowlist_logic(self):
