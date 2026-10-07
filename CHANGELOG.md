@@ -5,7 +5,40 @@ Every release, what changed and where. Newest first.
 Versions follow [semver](https://semver.org/). The browser extension has its own
 numbering (`extension/*/manifest.json`) and changes independently of the app.
 
-## Unreleased
+## [1.2.0] — 2026-10-07
+
+The app now runs on Linux with no behavior change on Windows. Every
+Windows-only layer maps to the native Linux equivalent; the shared logic
+(gate, emergency flow, TickTick client, extension protocol) is untouched.
+
+### Added (Linux)
+
+- **`focuslock/service.py`** — systemd `--user` backend
+  (`tickfence.service`, no root). New `python -m focuslock daemon` command
+  runs the Engine with the guard armed, for `ExecStart`.
+- **`focuslock/ipc.py`** — the same JSON protocol over a Unix socket at
+  `XDG_RUNTIME_DIR/tickfence` instead of the named pipe.
+- **`focuslock/paths.py`** — XDG data/config/runtime dirs on Linux;
+  `ProgramData` on Windows unchanged.
+- **`focuslock/shortcuts.py`, `focuslock/stub.py`** — `.desktop` launchers
+  and `notify-send` block notices instead of `.lnk` and `MessageBox`.
+- **`focuslock/store.py`** — no DPAPI on Linux: the token stays base64
+  with `state.json` at `0600`.
+- **`focuslock/rules.py`, `focuslock/guard.py`** — matching is stem-based
+  (`firefox` == `firefox.exe`) and the Linux session core (gnome-shell,
+  systemd, …) joins `NEVER_BLOCK`. There is no IFEO on Linux, so the
+  process guard is the hard layer there.
+- **`pyproject.toml`, `requirements.txt`** — `pywin32` is now gated on
+  `sys_platform=='win32'`, so `pip install .` works on Linux.
+- **`run_tests.sh`** — the same per-process suites as `run_tests.ps1`.
+
+### Fixed (both platforms)
+
+- **`focuslock/daemon.py`** — `_cmd_lock` used a bare `tr()` with no
+  import, so activating the lock crashed inside the service handler.
+- **`focuslock/daemon.py`, `focuslock/local.py`** — adding or removing
+  blocked programs/sites never called `config.save()`; the lists lived
+  only in memory and were lost on restart.
 
 ### Extension
 

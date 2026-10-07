@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "TickFence"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.2.0"
 
 SERVICE_NAME = "TickFenceSvc"
 SERVICE_DISPLAY_NAME = "TickFence Enforcement Service"

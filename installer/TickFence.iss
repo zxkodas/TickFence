@@ -8,7 +8,7 @@
 ; encuentra, registra el servicio de verdad y crea los accesos.
 
 #define AppName "TickFence"
-#define AppVersion "1.1.1"
+#define AppVersion "1.2.0"
 #define AppPublisher "zxkodas"
 #define AppURL "https://github.com/zxkodas/TickFence"
 
