@@ -1,0 +1,23 @@
+# Maintainer: zxkodas
+pkgname=tickfence
+pkgver=1.2.0
+pkgrel=1
+pkgdesc='Focus blocker for Windows and Linux, unlocked by completing TickTick tasks'
+arch=('any')
+url='https://github.com/zxkodas/TickFence'
+license=('GPL-3.0-or-later')
+depends=('python' 'python-pyside6' 'python-psutil')
+makedepends=('python-build' 'python-installer' 'python-setuptools')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/zxkodas/TickFence/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('4120f4b3239843a4fe82872ddc5b78a027f5e9826b9f1851b886b87da01a838e')
+install=tickfence.install
+
+build() {
+  cd "TickFence-$pkgver"
+  python -m build --wheel --no-isolation
+}
+
+package() {
+  cd "TickFence-$pkgver"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+}

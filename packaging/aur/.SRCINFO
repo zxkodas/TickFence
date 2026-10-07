@@ -1,0 +1,18 @@
+pkgbase = tickfence
+	pkgdesc = Focus blocker for Windows and Linux, unlocked by completing TickTick tasks
+	pkgver = 1.2.0
+	pkgrel = 1
+	url = https://github.com/zxkodas/TickFence
+	install = tickfence.install
+	arch = any
+	license = GPL-3.0-or-later
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-setuptools
+	depends = python
+	depends = python-pyside6
+	depends = python-psutil
+	source = tickfence-1.2.0.tar.gz::https://github.com/zxkodas/TickFence/archive/refs/tags/v1.2.0.tar.gz
+	sha256sums = 4120f4b3239843a4fe82872ddc5b78a027f5e9826b9f1851b886b87da01a838e
+
+pkgname = tickfence

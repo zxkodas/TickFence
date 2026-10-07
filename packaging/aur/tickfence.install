@@ -1,0 +1,6 @@
+post_install() {
+  echo "TickFence installed. Register the per-user service (no sudo needed):"
+  echo "  focuslock install"
+  echo "Then open the app with:"
+  echo "  focuslock gui"
+}
